@@ -30,7 +30,7 @@ start = (trojan) {
   return proxy
 }
 
-trojan = "trojan://" password:password "@" server:server ":" port:port params? name:name?{
+trojan = "trojan://" password:password "@" server:server ":" port:port "/"? params? name:name?{
   proxy.type = "trojan";
   proxy.password = password;
   proxy.server = server;
@@ -87,6 +87,23 @@ params = "?" head:param tail:("&"@param)* {
     proxy.network = "ws";
     $set(proxy, "ws-opts.path", params["wspath"]);
   }
+  
+  if (params["type"]) {
+    proxy.network = params["type"]
+    if (['grpc'].includes(proxy.network)) {
+        proxy[proxy.network + '-opts'] = {
+            'grpc-service-name': params["serviceName"],
+            '_grpc-type': params["mode"],
+        };
+    } else {
+      if (params["path"]) {
+        $set(proxy, proxy.network+"-opts.path", decodeURIComponent(params["path"]));  
+      }
+      if (params["host"]) {
+        $set(proxy, proxy.network+"-opts.headers.Host", decodeURIComponent(params["host"])); 
+      }
+    }
+  }
 
   proxy.udp = toBool(params["udp"]);
   proxy.tfo = toBool(params["tfo"]);
@@ -94,7 +111,7 @@ params = "?" head:param tail:("&"@param)* {
 
 param = kv/single;
 
-kv = key:$[a-z]i+ "=" value:$[^&#]i+ {
+kv = key:$[a-z]i+ "=" value:$[^&#]i* {
   params[key] = value;
 }
 

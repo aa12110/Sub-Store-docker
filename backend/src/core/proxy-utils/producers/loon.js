@@ -1,6 +1,7 @@
 /* eslint-disable no-case-declarations */
 const targetPlatform = 'Loon';
 import { isPresent, Result } from './utils';
+import { isIPv4, isIPv6 } from '@/utils';
 
 export default function Loon_Producer() {
     const produce = (proxy) => {
@@ -17,6 +18,10 @@ export default function Loon_Producer() {
                 return vless(proxy);
             case 'http':
                 return http(proxy);
+            case 'wireguard':
+                return wireguard(proxy);
+            case 'hysteria2':
+                return hysteria2(proxy);
         }
         throw new Error(
             `Platform ${targetPlatform} does not support proxy type: ${proxy.type}`,
@@ -27,6 +32,32 @@ export default function Loon_Producer() {
 
 function shadowsocks(proxy) {
     const result = new Result(proxy);
+    if (
+        ![
+            'rc4',
+            'rc4-md5',
+            'aes-128-cfb',
+            'aes-192-cfb',
+            'aes-256-cfb',
+            'aes-128-ctr',
+            'aes-192-ctr',
+            'aes-256-ctr',
+            'bf-cfb',
+            'camellia-128-cfb',
+            'camellia-192-cfb',
+            'camellia-256-cfb',
+            'salsa20',
+            'chacha20',
+            'chacha20-ietf',
+            'aes-128-gcm',
+            'aes-192-gcm',
+            'aes-256-gcm',
+            'chacha20-ietf-poly1305',
+            'xchacha20-ietf-poly1305',
+        ].includes(proxy.cipher)
+    ) {
+        throw new Error(`cipher ${proxy.cipher} is not supported`);
+    }
     result.append(
         `${proxy.name}=shadowsocks,${proxy.server},${proxy.port},${proxy.cipher},"${proxy.password}"`,
     );
@@ -52,7 +83,9 @@ function shadowsocks(proxy) {
     result.appendIfPresent(`,fast-open=${proxy.tfo}`, 'tfo');
 
     // udp
-    result.appendIfPresent(`,udp=${proxy.udp}`, 'udp');
+    if (proxy.udp) {
+        result.append(`,udp=true`);
+    }
 
     return result.toString();
 }
@@ -78,7 +111,9 @@ function shadowsocksr(proxy) {
     result.appendIfPresent(`,fast-open=${proxy.tfo}`, 'tfo');
 
     // udp
-    result.appendIfPresent(`,udp=${proxy.udp}`, 'udp');
+    if (proxy.udp) {
+        result.append(`,udp=true`);
+    }
 
     return result.toString();
 }
@@ -88,17 +123,19 @@ function trojan(proxy) {
     result.append(
         `${proxy.name}=trojan,${proxy.server},${proxy.port},"${proxy.password}"`,
     );
-
+    if (proxy.network === 'tcp') {
+        delete proxy.network;
+    }
     // transport
     if (isPresent(proxy, 'network')) {
         if (proxy.network === 'ws') {
             result.append(`,transport=ws`);
             result.appendIfPresent(
-                `,path=${proxy['ws-opts'].path}`,
+                `,path=${proxy['ws-opts']?.path}`,
                 'ws-opts.path',
             );
             result.appendIfPresent(
-                `,host=${proxy['ws-opts'].headers.Host}`,
+                `,host=${proxy['ws-opts']?.headers?.Host}`,
                 'ws-opts.headers.Host',
             );
         } else {
@@ -119,7 +156,9 @@ function trojan(proxy) {
     result.appendIfPresent(`,fast-open=${proxy.tfo}`, 'tfo');
 
     // udp
-    result.appendIfPresent(`,udp=${proxy.udp}`, 'udp');
+    if (proxy.udp) {
+        result.append(`,udp=true`);
+    }
 
     return result.toString();
 }
@@ -127,31 +166,33 @@ function trojan(proxy) {
 function vmess(proxy) {
     const result = new Result(proxy);
     result.append(
-        `${proxy.name}=vmess,${proxy.server},${proxy.port},${
-            proxy.cipher === 'auto' ? 'none' : proxy.cipher
-        },"${proxy.uuid}"`,
+        `${proxy.name}=vmess,${proxy.server},${proxy.port},${proxy.cipher},"${proxy.uuid}"`,
     );
-
+    if (proxy.network === 'tcp') {
+        delete proxy.network;
+    }
     // transport
     if (isPresent(proxy, 'network')) {
         if (proxy.network === 'ws') {
             result.append(`,transport=ws`);
             result.appendIfPresent(
-                `,path=${proxy['ws-opts'].path}`,
+                `,path=${proxy['ws-opts']?.path}`,
                 'ws-opts.path',
             );
             result.appendIfPresent(
-                `,host=${proxy['ws-opts'].headers.Host}`,
+                `,host=${proxy['ws-opts']?.headers?.Host}`,
                 'ws-opts.headers.Host',
             );
         } else if (proxy.network === 'http') {
             result.append(`,transport=http`);
+            let httpPath = proxy['http-opts']?.path;
+            let httpHost = proxy['http-opts']?.headers?.Host;
             result.appendIfPresent(
-                `,path=${proxy['http-opts'].path}`,
+                `,path=${Array.isArray(httpPath) ? httpPath[0] : httpPath}`,
                 'http-opts.path',
             );
             result.appendIfPresent(
-                `,host=${proxy['http-opts'].headers.Host}`,
+                `,host=${Array.isArray(httpHost) ? httpHost[0] : httpHost}`,
                 'http-opts.headers.Host',
             );
         } else {
@@ -184,36 +225,45 @@ function vmess(proxy) {
     result.appendIfPresent(`,fast-open=${proxy.tfo}`, 'tfo');
 
     // udp
-    result.appendIfPresent(`,udp=${proxy.udp}`, 'udp');
+    if (proxy.udp) {
+        result.append(`,udp=true`);
+    }
     return result.toString();
 }
 
 function vless(proxy) {
+    if (proxy['reality-opts']) {
+        throw new Error(`VLESS REALITY is unsupported`);
+    }
     const result = new Result(proxy);
     result.append(
         `${proxy.name}=vless,${proxy.server},${proxy.port},"${proxy.uuid}"`,
     );
-
+    if (proxy.network === 'tcp') {
+        delete proxy.network;
+    }
     // transport
     if (isPresent(proxy, 'network')) {
         if (proxy.network === 'ws') {
             result.append(`,transport=ws`);
             result.appendIfPresent(
-                `,path=${proxy['ws-opts'].path}`,
+                `,path=${proxy['ws-opts']?.path}`,
                 'ws-opts.path',
             );
             result.appendIfPresent(
-                `,host=${proxy['ws-opts'].headers.Host}`,
+                `,host=${proxy['ws-opts']?.headers?.Host}`,
                 'ws-opts.headers.Host',
             );
         } else if (proxy.network === 'http') {
             result.append(`,transport=http`);
+            let httpPath = proxy['http-opts']?.path;
+            let httpHost = proxy['http-opts']?.headers?.Host;
             result.appendIfPresent(
-                `,path=${proxy['http-opts'].path}`,
+                `,path=${Array.isArray(httpPath) ? httpPath[0] : httpPath}`,
                 'http-opts.path',
             );
             result.appendIfPresent(
-                `,host=${proxy['http-opts'].headers.Host}`,
+                `,host=${Array.isArray(httpHost) ? httpHost[0] : httpHost}`,
                 'http-opts.headers.Host',
             );
         } else {
@@ -239,7 +289,9 @@ function vless(proxy) {
     result.appendIfPresent(`,fast-open=${proxy.tfo}`, 'tfo');
 
     // udp
-    result.appendIfPresent(`,udp=${proxy.udp}`, 'udp');
+    if (proxy.udp) {
+        result.append(`,udp=true`);
+    }
     return result.toString();
 }
 
@@ -262,7 +314,105 @@ function http(proxy) {
     // tfo
     result.appendIfPresent(`,tfo=${proxy.tfo}`, 'tfo');
 
+    return result.toString();
+}
+
+function wireguard(proxy) {
+    if (Array.isArray(proxy.peers) && proxy.peers.length > 0) {
+        proxy.server = proxy.peers[0].server;
+        proxy.port = proxy.peers[0].port;
+        proxy.ip = proxy.peers[0].ip;
+        proxy.ipv6 = proxy.peers[0].ipv6;
+        proxy['public-key'] = proxy.peers[0]['public-key'];
+        proxy['preshared-key'] = proxy.peers[0]['pre-shared-key'];
+        // https://github.com/MetaCubeX/mihomo/blob/0404e35be8736b695eae018a08debb175c1f96e6/docs/config.yaml#L717
+        proxy['allowed-ips'] = proxy.peers[0]['allowed-ips'];
+        proxy.reserved = proxy.peers[0].reserved;
+    }
+    const result = new Result(proxy);
+    result.append(`${proxy.name}=wireguard`);
+
+    result.appendIfPresent(`,interface-ip=${proxy.ip}`, 'ip');
+    result.appendIfPresent(`,interface-ipv6=${proxy.ipv6}`, 'ipv6');
+
+    result.appendIfPresent(
+        `,private-key="${proxy['private-key']}"`,
+        'private-key',
+    );
+    result.appendIfPresent(`,mtu=${proxy.mtu}`, 'mtu');
+
+    if (proxy.dns) {
+        if (Array.isArray(proxy.dns)) {
+            proxy.dnsv6 = proxy.dns.find((i) => isIPv6(i));
+            let dns = proxy.dns.find((i) => isIPv4(i));
+            if (!dns) {
+                dns = proxy.dns.find((i) => !isIPv4(i) && !isIPv6(i));
+            }
+            proxy.dns = dns;
+        }
+    }
+    result.appendIfPresent(`,dns=${proxy.dns}`, 'dns');
+    result.appendIfPresent(`,dnsv6=${proxy.dnsv6}`, 'dnsv6');
+    result.appendIfPresent(
+        `,keepalive=${proxy['persistent-keepalive']}`,
+        'persistent-keepalive',
+    );
+    result.appendIfPresent(`,keepalive=${proxy.keepalive}`, 'keepalive');
+    const allowedIps = Array.isArray(proxy['allowed-ips'])
+        ? proxy['allowed-ips'].join(',')
+        : proxy['allowed-ips'];
+    let reserved = Array.isArray(proxy.reserved)
+        ? proxy.reserved.join(',')
+        : proxy.reserved;
+    if (reserved) {
+        reserved = `,reserved=[${reserved}]`;
+    }
+    let presharedKey = proxy['preshared-key'] ?? proxy['pre-shared-key'];
+    if (presharedKey) {
+        presharedKey = `,preshared-key="${presharedKey}"`;
+    }
+    result.append(
+        `,peers=[{public-key="${proxy['public-key']}",allowed-ips="${
+            allowedIps ?? '0.0.0.0/0,::/0'
+        }",endpoint=${proxy.server}:${proxy.port}${reserved ?? ''}${
+            presharedKey ?? ''
+        }}]`,
+    );
+
+    return result.toString();
+}
+
+function hysteria2(proxy) {
+    if (proxy.obfs || proxy['obfs-password']) {
+        throw new Error(`obfs is unsupported`);
+    }
+    const result = new Result(proxy);
+    result.append(`${proxy.name}=Hysteria2,${proxy.server},${proxy.port}`);
+
+    result.appendIfPresent(`,"${proxy.password}"`, 'password');
+
+    // sni
+    result.appendIfPresent(`,tls-name=${proxy.sni}`, 'sni');
+    result.appendIfPresent(
+        `,skip-cert-verify=${proxy['skip-cert-verify']}`,
+        'skip-cert-verify',
+    );
+
+    // tfo
+    result.appendIfPresent(`,fast-open=${proxy.tfo}`, 'tfo');
+
     // udp
-    result.appendIfPresent(`,udp-relay=${proxy.udp}`, 'udp');
+    if (proxy.udp) {
+        result.append(`,udp=true`);
+    }
+
+    // download-bandwidth
+    result.appendIfPresent(
+        `,download-bandwidth=${`${proxy['down']}`.match(/\d+/)?.[0] || 0}`,
+        'down',
+    );
+
+    result.appendIfPresent(`,ecn=${proxy.ecn}`, 'ecn');
+
     return result.toString();
 }
